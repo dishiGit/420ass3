@@ -1,20 +1,35 @@
 package ca.mcgill.ecse420.a3;
 
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MatrixMultiplication {
 
-    private static final int NUMBER_THREADS = 1;
-    private static final int MATRIX_SIZE = 3;
+    private static final int NUMBER_THREADS = 4;
+    private static final int MATRIX_SIZE = 2000;
 
     public static void main(String[] args) {
-
+        long startTime;
+        long endTime;
+        long duration;
         // Generate two random matrices, same size
         double[][] a = generateRandomMatrix(MATRIX_SIZE, MATRIX_SIZE);
-        double[][] b = generateRandomMatrix(MATRIX_SIZE, MATRIX_SIZE);
-        sequentialMultiplyMatrix(a, b);
-        parallelMultiplyMatrix(a, b);
+        double[] b = generateRandomVector(MATRIX_SIZE);
+
+        startTime = System.nanoTime();
+        double[] res_seq = sequentialMultiply(a, b);
+        endTime = System.nanoTime();
+        duration = (endTime - startTime);
+        System.out.print("Sequential Execution Time: " + duration + "\n");
+
+        startTime = System.nanoTime();
+        double[] res_par = parallelMultiply(a, b);
+        endTime = System.nanoTime();
+        duration = (endTime - startTime);
+        System.out.print("Sequential Execution Time: " + duration + "\n");
+
+        if(Arrays.equals(res_seq,res_par)) System.out.print("The results match!\n");
     }
 
     /**
@@ -24,16 +39,13 @@ public class MatrixMultiplication {
      * @param b is the second matrix
      * @return the result of the multiplication
      * */
-    public static double[][] sequentialMultiplyMatrix(double[][] a, double[][] b) {
+    public static double[] sequentialMultiply(double[][] a, double[] b) {
         int matrix_size = a.length;
-        double[][] res = new double[matrix_size][matrix_size];
+        double[] res = new double[matrix_size];
         for (int i=0; i < matrix_size; i++){
             for (int j=0; j < matrix_size; j++){
-                for (int k=0; k < matrix_size; k++) {
-                    res[i][j] += a[i][k] * b[k][j];
-                }
+                res[i] += a[i][j] * b[j];
             }
-
         }
         return res;
     }
@@ -45,25 +57,30 @@ public class MatrixMultiplication {
      * @param b is the second matrix
      * @return the result of the multiplication
      * */
-    public static double[][] parallelMultiplyMatrix(double[][] a, double[][] b) {
+    public static double[] parallelMultiply(double[][] a, double[] b) {
         int matrix_size = a.length;;
-        int task_size = 1;
-        double[][] res = new double[matrix_size][matrix_size];
+        int task_size = (int) Math.ceil((double)matrix_size/(double)NUMBER_THREADS);
+        double[] res = new double[matrix_size];
 
         class MultiplyTask implements Runnable{
             int mStart;
             int mStop;
+            double[] mRes;
             public MultiplyTask(int start, int stop){
                 mStart = start;
                 mStop = stop;
+                mRes = new double[stop-start];
             }
             public void run(){
                 for (int i = mStart; i < mStop; i++){
                     for (int j = 0; j < matrix_size; j++){
-                        for (int k=0; k < matrix_size; k++) {
-                            double ans = a[i][k] * b[k][j];
-                            res[i][j] += ans;
-                        }
+                            double ans = a[i][j] * b[j];
+                            mRes[i-mStart] += ans;
+                    }
+                }
+                synchronized (res){
+                    for (int i = mStart; i<mStop; i++){
+                        res[i] = mRes[i-mStart];
                     }
                 }
             }
@@ -78,6 +95,7 @@ public class MatrixMultiplication {
             }
         }
         e.shutdown();
+        while (!e.isTerminated()){};
         return res;
     }
 
@@ -95,5 +113,13 @@ public class MatrixMultiplication {
             }
         }
         return matrix;
+    }
+
+    private static double[] generateRandomVector (int numCols) {
+        double vector[] = new double[numCols];
+        for (int col = 0 ; col < numCols ; col++ ) {
+            vector[col] = (double) ((int) (Math.random() * 10.0));
+        }
+        return vector;
     }
 }

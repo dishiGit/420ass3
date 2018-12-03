@@ -1,5 +1,5 @@
 
-package ca.mcgill.ecse420.a3.q3;
+package ca.mcgill.ecse420.a3;
 import java.lang.reflect.Array;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.Condition;
@@ -80,7 +80,7 @@ public class BoundedLockBasedQueue<T> {
     public T Dequeue() throws InterruptedException {
         boolean mustWakeEnqueuers = false;
         deqLock.lock();
-        T result
+        T result;
 
         try {
             //Check if queue is empty and wait until something is in it
@@ -94,10 +94,10 @@ public class BoundedLockBasedQueue<T> {
             }
 
             //Increment head index and return previous head value
-            result = itemArray[head%itemArray.length;];
+            result = itemArray[head%itemArray.length];
             head++;
 
-            if (size.getAndDecrement() == capacity) {
+            if (size.getAndDecrement() == itemArray.length) {
                 mustWakeEnqueuers = true;
             }
 
@@ -108,9 +108,7 @@ public class BoundedLockBasedQueue<T> {
         if(mustWakeEnqueuers){
             enqLock.lock();
             try{
-
                 notFullCondition.signalAll();
-
             }finally{
                 enqLock.unlock();
             }

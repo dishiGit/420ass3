@@ -1,14 +1,11 @@
 package ca.mcgill.ecse420.a3;
 
-import jdk.nashorn.internal.codegen.CompilerConstants;
-
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MatrixMultiplication {
 
-    private static final int NUMBER_THREADS = 8;
     private static final int MATRIX_SIZE = 2000;
 
     public static void main(String[] args) {
@@ -61,8 +58,9 @@ public class MatrixMultiplication {
      * */
     public static double[] parallelMultiply(double[][] a, double[] b) {
         int matrix_size = a.length;;
-        ExecutorService e = Executors.newFixedThreadPool(matrix_size*matrix_size*matrix_size);
+        ExecutorService e = Executors.newFixedThreadPool(matrix_size*matrix_size);
         double[] res = new double[matrix_size];
+        AtomicInteger cnt = new AtomicInteger();
 
         class MultiplyTask implements Callable<Double> {
             int mStart;
@@ -81,6 +79,7 @@ public class MatrixMultiplication {
                     int mid = (mStop+mStart) / 2;
                     Future<Double> f1 = e.submit(new MultiplyTask(mStart, mid, mElement));
                     Future<Double> f2 = e.submit(new MultiplyTask(mid, mStop, mElement));
+                    while(!f1.isDone() || !f2.isDone()) Thread.yield();
                     try {
                         partialSum = f1.get() + f2.get();
                     } catch (Exception e){
@@ -103,32 +102,23 @@ public class MatrixMultiplication {
             public void run(){
                 if (mStop-mStart<=1){
                     Future<Double> r = e.submit(new MultiplyTask(0, matrix_size, mStart));
+                    while(!r.isDone()) Thread.yield();
                     try {
                         res[mStart] = r.get();
                     } catch (Exception e){
                         System.out.print("Something went wrong in SplitVectorTask");
                     }
+                    int currentCount = cnt.incrementAndGet();
+                    if (currentCount==matrix_size) e.shutdown(); // Shutdown the Executor when all is done
                 } else {
                     int mid = (mStop+mStart) / 2;
-                    Future<?> f1 = e.submit(new SplitVectorTask(mStart, mid));
-                    Future<?> f2 = e.submit(new SplitVectorTask(mid, mStop));
-                    try {
-                        f1.get();
-                        f2.get();
-                    } catch (Exception e){
-                        System.out.print("Something went wrong in MultiplyTask");
-                    }
+                    e.execute(new SplitVectorTask(mStart, mid));
+                    e.execute(new SplitVectorTask(mid, mStop));
                 }
             }
         }
 
-        Future<?> future= e.submit(new SplitVectorTask(0, matrix_size));
-        try {
-            future.get();
-        } catch (Exception lastE){
-            System.out.print("Something went wrong in MultiplyTask");
-        }
-        e.shutdown();
+        e.execute(new SplitVectorTask(0, matrix_size));
         while (!e.isTerminated()){};
         return res;
     }
@@ -157,3 +147,4 @@ public class MatrixMultiplication {
         return vector;
     }
 }
+

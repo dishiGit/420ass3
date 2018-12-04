@@ -1,12 +1,14 @@
 package ca.mcgill.ecse420.a3;
 
+import jdk.nashorn.internal.codegen.CompilerConstants;
+
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 
 public class MatrixMultiplication {
 
-    private static final int NUMBER_THREADS = 4;
+    private static final int NUMBER_THREADS = 8;
     private static final int MATRIX_SIZE = 2000;
 
     public static void main(String[] args) {
@@ -27,7 +29,7 @@ public class MatrixMultiplication {
         double[] res_par = parallelMultiply(a, b);
         endTime = System.nanoTime();
         duration = (endTime - startTime);
-        System.out.print("Sequential Execution Time: " + duration + "\n");
+        System.out.print("Parallel Execution Time: " + duration + "\n");
 
         if(Arrays.equals(res_seq,res_par)) System.out.print("The results match!\n");
     }
@@ -59,40 +61,72 @@ public class MatrixMultiplication {
      * */
     public static double[] parallelMultiply(double[][] a, double[] b) {
         int matrix_size = a.length;;
-        int task_size = (int) Math.ceil((double)matrix_size/(double)NUMBER_THREADS);
+        ExecutorService e = Executors.newFixedThreadPool(matrix_size*matrix_size*matrix_size);
         double[] res = new double[matrix_size];
 
-        class MultiplyTask implements Runnable{
+        class MultiplyTask implements Callable<Double> {
             int mStart;
             int mStop;
-            double[] mRes;
-            public MultiplyTask(int start, int stop){
+            int mElement;
+            double partialSum;
+            public MultiplyTask(int start, int stop, int element){
                 mStart = start;
                 mStop = stop;
-                mRes = new double[stop-start];
+                mElement = element;
             }
-            public void run(){
-                for (int i = mStart; i < mStop; i++){
-                    for (int j = 0; j < matrix_size; j++){
-                            double ans = a[i][j] * b[j];
-                            mRes[i-mStart] += ans;
+            public Double call(){
+                if (mStop-mStart<=1){
+                    partialSum = a[mElement][mStart] * b[mStart];
+                } else {
+                    int mid = (mStop+mStart) / 2;
+                    Future<Double> f1 = e.submit(new MultiplyTask(mStart, mid, mElement));
+                    Future<Double> f2 = e.submit(new MultiplyTask(mid, mStop, mElement));
+                    try {
+                        partialSum = f1.get() + f2.get();
+                    } catch (Exception e){
+                        System.out.print("Something went wrong in MultiplyTask");
                     }
                 }
-                synchronized (res){
-                    for (int i = mStart; i<mStop; i++){
-                        res[i] = mRes[i-mStart];
+                return partialSum;
+            }
+        }
+
+        class SplitVectorTask implements Runnable {
+            int mStart;
+            int mStop;
+
+            SplitVectorTask (int start, int stop){
+                mStart = start;
+                mStop = stop;
+            }
+
+            public void run(){
+                if (mStop-mStart<=1){
+                    Future<Double> r = e.submit(new MultiplyTask(0, matrix_size, mStart));
+                    try {
+                        res[mStart] = r.get();
+                    } catch (Exception e){
+                        System.out.print("Something went wrong in SplitVectorTask");
+                    }
+                } else {
+                    int mid = (mStop+mStart) / 2;
+                    Future<?> f1 = e.submit(new SplitVectorTask(mStart, mid));
+                    Future<?> f2 = e.submit(new SplitVectorTask(mid, mStop));
+                    try {
+                        f1.get();
+                        f2.get();
+                    } catch (Exception e){
+                        System.out.print("Something went wrong in MultiplyTask");
                     }
                 }
             }
         }
 
-        ExecutorService e = Executors.newFixedThreadPool(NUMBER_THREADS);
-        for (int t = 0; t < matrix_size; t += task_size){
-            if (matrix_size - t < task_size){
-                e.execute(new MultiplyTask(t, matrix_size));
-            } else {
-                e.execute(new MultiplyTask(t, t+task_size));
-            }
+        Future<?> future= e.submit(new SplitVectorTask(0, matrix_size));
+        try {
+            future.get();
+        } catch (Exception lastE){
+            System.out.print("Something went wrong in MultiplyTask");
         }
         e.shutdown();
         while (!e.isTerminated()){};
